@@ -20,14 +20,15 @@ ou adaptar pra outros jogos da série.
 - [x] Decompilação dos scripts do jogo (Gothic Sourcer)
 - [x] Extração dos textos de diálogo (`AI_Output` → JSON)
 - [x] Cruzamento áudio + texto em `metadata.csv` por personagem (formato LJSpeech)
-- [ ] Tradução PT-BR
+- [x] Tradução PT-BR (via API Anthropic/Claude)
 - [ ] Pipeline de geração de voz (TTS / RVC ou So-VITS-SVC)
 - [ ] Reempacotamento no jogo
 
 **Números atuais do dataset:**
 - 7.351 arquivos de áudio extraídos, organizados em 192 pastas por personagem
 - 5.594 falas de diálogo com texto extraído dos scripts
-- **5.508 pares áudio+texto** prontos para uso (taxa de acerto ~98% nos diálogos nomeados)
+- 5.508 pares áudio+texto prontos para uso (taxa de acerto ~98% nos diálogos nomeados)
+- **5.508 falas traduzidas para PT-BR**, custo total de **US$ 2,48** via API da Anthropic (Claude Sonnet)
 - Restante (SVMs/barks genéricos de combate) sem texto associado — tratamento futuro
 
 ## Setup do ambiente de jogo (Gothic 1 Classic — Steam)
