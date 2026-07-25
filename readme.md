@@ -21,14 +21,16 @@ ou adaptar pra outros jogos da série.
 - [x] Extração dos textos de diálogo (`AI_Output` → JSON)
 - [x] Cruzamento áudio + texto em `metadata.csv` por personagem (formato LJSpeech)
 - [x] Tradução PT-BR (via API Anthropic/Claude)
-- [ ] Pipeline de geração de voz (TTS / RVC ou So-VITS-SVC)
+- [x] Correção de contaminação de vozes (falas do Herói misturadas nos NPCs)
+- [x] Ambiente de treino de voz configurado (RVC WebUI, RTX 3050 4GB)
+- [ ] Treino do primeiro modelo de voz (piloto: Diego)
+- [ ] Pipeline de geração de voz completo (TTS + RVC)
 - [ ] Reempacotamento no jogo
 
 **Números atuais do dataset:**
-- 7.351 arquivos de áudio extraídos, organizados em 192 pastas por personagem
+- 7.351 arquivos de áudio extraídos, organizados por personagem
 - 5.594 falas de diálogo com texto extraído dos scripts
-- 5.508 pares áudio+texto prontos para uso (taxa de acerto ~98% nos diálogos nomeados)
-- **5.508 falas traduzidas para PT-BR**, custo total de **US$ 2,48** via API da Anthropic (Claude Sonnet)
+- 5.508 pares áudio+texto traduzidos para PT-BR, custo total de **US$ 2,48** via API da Anthropic (Claude Sonnet)
 - Restante (SVMs/barks genéricos de combate) sem texto associado — tratamento futuro
 
 ## Setup do ambiente de jogo (Gothic 1 Classic — Steam)
@@ -75,10 +77,8 @@ decompilados com o **Gothic Sourcer** (File → New Project → "First
 decompile action"), gerando os arquivos-fonte `.d` em formato Daedalus.
 
 O texto de cada fala aparece como comentário logo após a chamada
-`AI_Output`, junto com o ID do áudio correspondente:
-
-O script `scripts/dataset/extract_dialogue_text.py` varre todos os `.d`
-decompilados e gera um JSON com todas as falas encontradas:
+`AI_Output`, junto com o ID do áudio e os campos de quem fala (`self`)
+e quem escuta (`other`):
 
 ```bash
 python scripts/dataset/extract_dialogue_text.py --src "<pasta do projeto decompilado>" --out "dialogue_dataset.json"
@@ -86,32 +86,93 @@ python scripts/dataset/extract_dialogue_text.py --src "<pasta do projeto decompi
 
 ### 3. Cruzamento áudio + texto
 
-O script `scripts/dataset/merge_audio_text.py` casa os `.wav` já
-organizados com o texto extraído no passo anterior, gerando um
-`metadata.csv` (formato LJSpeech: `nome_arquivo|texto`) dentro de cada
-pasta de personagem — pronto para uso em treino de TTS/voice cloning:
-
 ```bash
 python scripts/dataset/merge_audio_text.py --dataset "<pasta dataset>" --json "dialogue_dataset.json"
 ```
 
+Gera `metadata.csv` (formato LJSpeech: `nome_arquivo|texto`) em cada pasta.
+
+### 4. Tradução PT-BR
+
+Tradução via API da Anthropic (Claude), em lotes por personagem, com
+salvamento incremental (pode ser interrompida e retomada):
+
+```bash
+python scripts/pipeline/translate_dataset.py --dataset "<pasta dataset>" --all
+```
+
+Requer `ANTHROPIC_API_KEY` em `.env`. Gera `metadata_pt.csv`
+(`arquivo|texto_en|texto_pt`) em cada pasta.
+
+### 5. Correção de contaminação de vozes
+
+**Problema descoberto:** cada arquivo `.d` de diálogo contém falas de
+**dois** personagens — o NPC dono do arquivo (`self`) e o Herói/Nônimo
+respondendo (`other`/`hero`). A organização inicial (baseada só no nome
+do arquivo de áudio) atribuía **todas** as falas de um diálogo ao NPC
+dono do arquivo, contaminando cada pasta de personagem com ~30% de falas
+do Herói — o que corromperia qualquer modelo de voz treinado em cima.
+
+O script `scripts/dataset/fix_speaker_contamination.py` usa o campo
+`speaker` (já capturado no `dialogue_dataset.json`) para mover as falas
+do Herói para uma pasta `HEROI` dedicada:
+
+```bash
+python scripts/dataset/fix_speaker_contamination.py --json "dialogue_dataset.json" --dataset "<pasta dataset>" --dry-run
+```
+
+Remova `--dry-run` para mover de fato. **Resultado:** 1.910 de 5.594
+falas (34%) estavam mal classificadas e foram corrigidas — a maior parte
+foi parar corretamente na pasta `HEROI`, que passou a ser o personagem
+com mais dados de voz do dataset (esperado, já que é o protagonista).
+
+As traduções já pagas não se perdem: `consolidate_translations.py` gera
+um índice `nome_arquivo → tradução` antes da correção, e
+`rebuild_metadata.py` reconstrói os `metadata.csv`/`metadata_pt.csv` de
+cada pasta reaproveitando 100% das traduções já feitas, sem custo
+adicional de API.
+
+```bash
+python scripts/pipeline/consolidate_translations.py --dataset "<pasta dataset>" --out "translations_index.json"
+# (rodar fix_speaker_contamination.py sem --dry-run aqui)
+python scripts/dataset/rebuild_metadata.py --dataset "<pasta dataset>" --dialogue-json "dialogue_dataset.json" --translations "translations_index.json"
+```
+
+### 6. Preparo de áudio para treino
+
+Os `.wav` originais do jogo estão em **IMA_ADPCM 4-bit**, formato não
+suportado pelas ferramentas de ML. O script converte para PCM 16-bit:
+
+```bash
+python scripts/pipeline/prepare_audio_for_training.py --src "<dataset>" --dst "<dataset_rvc_ready>" --all
+```
+
+## Geração de voz (RVC)
+
+**Hardware:** notebook com RTX 3050 (4GB VRAM), 16GB RAM. Com essa
+VRAM, RVC (voice conversion) é viável; treinar TTS do zero (XTTS
+fine-tuning) não é.
+
+**Setup:** [RVC-Project WebUI](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI)
+instalado separadamente (fora deste repositório, é uma ferramenta de
+terceiros), com PyTorch CUDA 12.8 (`torch==2.7.1+cu128`).
+
+Modelos base necessários (baixados do Hugging Face `lj1995/VoiceConversionWebUI`):
+```bash
+hf download lj1995/VoiceConversionWebUI --include "hubert_base/*" --local-dir assets
+hf download lj1995/VoiceConversionWebUI rmvpe.pt --local-dir assets/rmvpe
+hf download lj1995/VoiceConversionWebUI --include "pretrained/*" --local-dir assets
+hf download lj1995/VoiceConversionWebUI --include "pretrained_v2/*" --local-dir assets
+```
+
+**Nota:** a interface web do RVC apresentou bugs de subprocesso nesse
+ambiente (PYTHONPATH/caminhos relativos). O pipeline completo (preprocess,
+extração de f0, extração de features, treino) foi executado com sucesso
+rodando os módulos manualmente via `python -m train.<script>` — ver
+histórico de comandos para reprodução.
+
+Configuração de treino usada (piloto: Diego, 123 falas após correção de
+contaminação): `v2`, `40k`, `f0` ativado, `batch_size=4` (limitado pela
+VRAM), `total_epoch=200`, `save_every_epoch=50`.
+
 ## Estrutura do repositório
-
-## Ferramentas de terceiros utilizadas
-
-- [GothicVDFS](https://worldofplayers.ru/threads/42314/) — extração de pacotes `.vdf`
-- [Gothic Sourcer](https://worldofplayers.ru/threads/38318/) — decompilação e leitura de scripts de diálogo
-- Union / Ninja / Toolkit / G1CP / GD3D11 — via Steam Workshop
-
-## Licença e Direitos Autorais
-
-O **código deste repositório** (scripts, documentação) é distribuído sob
-licença MIT — veja `LICENSE`.
-
-Gothic 1 e todos os seus assets (áudio, texto, modelos, texturas) são
-propriedade de **Piranha Bytes / THQ Nordic**. Este repositório **não**
-inclui, distribui ou hospeda nenhum arquivo extraído do jogo original
-(áudios, dataset, scripts de diálogo do jogo). Qualquer pessoa que queira
-reproduzir o processo precisa possuir uma cópia legítima do jogo.
-
-Este é um projeto de fã, não afiliado à Piranha Bytes ou THQ Nordic.
