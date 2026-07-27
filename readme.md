@@ -23,9 +23,9 @@ ou adaptar pra outros jogos da série.
 - [x] Tradução PT-BR (via API Anthropic/Claude), com controle de tamanho
 - [x] Correção de contaminação de vozes (falas do Herói misturadas nos NPCs)
 - [x] Pipeline de geração de voz definido: XTTS v2 com voice cloning zero-shot
-- [x] **Dublagem completa em andamento — mais da metade dos personagens
-      concluída, qualidade consistente em todos até agora**
-- [ ] Finalizar dublagem de todos os personagens (incluindo HEROI, o maior)
+- [x] **Dublagem completa de todos os personagens (192/193) via XTTS v2**
+- [x] Correção pontual de falas com letras repetidas/gritos (41 falas
+      identificadas e regeneradas com texto normalizado)
 - [ ] Reempacotamento no jogo
 
 **Números atuais do dataset:**
@@ -141,6 +141,20 @@ nativa) e PyTorch com CUDA já configurado no ambiente.
 - Reticências (`...`) viram vírgula — evita leitura literal
 - Ponto final é removido — o XTTS ocasionalmente verbaliza a palavra
   "ponto" no fim de frases curtas
+
+### Correção de falas com ênfase excessiva (gritos)
+
+Textos com letras repetidas para indicar grito/ênfase (ex: `AAAAARRRGHHHHH`)
+confundem o XTTS, gerando áudio distorcido ou ininteligível. A função
+`clean_text_for_tts` colapsa sequências de 3+ letras repetidas para 1 só
+(preserva duplas naturais do português, como em "carro"):
+
+```bash
+python scripts/pipeline/find_repeated_letters.py --dataset "<dataset>" --out "falas_flagged.json"
+python scripts/pipeline/regenerate_flagged.py --flagged "falas_flagged.json" --references "<references>" --out "<pasta dublagem>"
+```
+
+41 de 5.508 falas (0.7%) precisaram dessa correção.
 
 ### 6. Seleção da referência de voz
 
