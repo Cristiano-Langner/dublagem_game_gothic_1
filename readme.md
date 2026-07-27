@@ -22,16 +22,19 @@ ou adaptar pra outros jogos da série.
 - [x] Cruzamento áudio + texto em `metadata.csv` por personagem (formato LJSpeech)
 - [x] Tradução PT-BR (via API Anthropic/Claude), com controle de tamanho
 - [x] Correção de contaminação de vozes (falas do Herói misturadas nos NPCs)
-- [x] **Pipeline de geração de voz definido: XTTS v2 com voice cloning zero-shot**
-- [x] Validado em 6 personagens (qualidade superior a TTS genérico + RVC)
-- [ ] Geração completa (todas as falas) de todos os personagens
+- [x] Pipeline de geração de voz definido: XTTS v2 com voice cloning zero-shot
+- [x] **Dublagem completa em andamento — mais da metade dos personagens
+      concluída, qualidade consistente em todos até agora**
+- [ ] Finalizar dublagem de todos os personagens (incluindo HEROI, o maior)
 - [ ] Reempacotamento no jogo
 
 **Números atuais do dataset:**
 - 7.351 arquivos de áudio extraídos, organizados por personagem
 - 5.594 falas de diálogo com texto extraído dos scripts
 - 5.508 pares áudio+texto traduzidos para PT-BR
-- Restante (SVMs/barks genéricos de combate) sem texto associado — tratamento futuro
+- 192 de 193 personagens com referência de voz gerada (1 sem áudio suficiente)
+- Dublagem rodando do personagem com menos falas para o com mais falas,
+  permitindo validar qualidade em maior variedade de vozes primeiro
 
 ## Setup do ambiente de jogo (Gothic 1 Classic — Steam)
 
@@ -83,9 +86,7 @@ python scripts/dataset/merge_audio_text.py --dataset "<pasta dataset>" --json "d
 ### 4. Tradução PT-BR
 
 Tradução via API da Anthropic (Claude), em lotes por personagem, com
-controle de tamanho (a tradução não deve ultrapassar ~20% do tamanho do
-texto original, reduzindo a necessidade de ajustar duração do áudio
-depois) e salvamento incremental (retomável):
+controle de tamanho e salvamento incremental (retomável):
 
 ```bash
 python scripts/pipeline/translate_dataset.py --dataset "<pasta dataset>" --all
@@ -107,20 +108,18 @@ python scripts/pipeline/consolidate_translations.py --dataset "<pasta dataset>" 
 python scripts/dataset/rebuild_metadata.py --dataset "<pasta dataset>" --dialogue-json "dialogue_dataset.json" --translations "translations_index.json"
 ```
 
-## Geração de voz — XTTS v2 com voice cloning (pipeline atual)
+## Geração de voz — XTTS v2 com voice cloning
 
-**Decisão de arquitetura:** depois de testar três abordagens (TTS
-genérico + RVC treinado por personagem; RVC com índice de features e
-calibração de pitch/pausas; XTTS v2 com voice cloning direto do áudio
-original), a que se mostrou melhor foi a mais simples: **XTTS v2 usando
+**Decisão de arquitetura:** foram testadas três abordagens — TTS
+genérico (edge-tts) + RVC treinado por personagem; RVC com índice de
+features e calibração de pitch/pausas; XTTS v2 com voice cloning direto
+do áudio original. A mais simples se mostrou a melhor: **XTTS v2 usando
 o próprio áudio original em inglês de cada personagem como referência
-de voz** (voice cloning zero-shot), sem RVC como etapa adicional.
+de voz** (voice cloning zero-shot), sem necessidade de treinar nada.
 
-Isso elimina a necessidade de treinar um modelo por personagem — não é
-mais preciso rodar o pipeline de treino RVC (`batch_prepare_rvc.py`,
-`batch_train_rvc.py`) para novos personagens. Esses scripts continuam
-no repositório como documentação do processo, mas não fazem mais parte
-do fluxo ativo.
+Isso eliminou a etapa de treino por personagem (RVC) do fluxo ativo —
+os scripts de treino continuam no repositório como documentação do
+processo, mas não são mais necessários para adicionar novos personagens.
 
 ### Setup
 
@@ -131,36 +130,42 @@ pip install TTS
 Requer Microsoft C++ Build Tools no Windows (compilação de extensão
 nativa) e PyTorch com CUDA já configurado no ambiente.
 
-**Ajustes de compatibilidade necessários** (PyTorch 2.6+ mudou o padrão
-de `torch.load`; `torchaudio` novo exige `torchcodec`/FFmpeg externo
-para carregar áudio): `test_xtts.py` e `dub_with_xtts.py` já incluem os
-patches necessários (força `weights_only=False` no carregamento do
-checkpoint; substitui `torchaudio.load` por `soundfile`, evitando a
-dependência do FFmpeg).
+**Ajustes de compatibilidade** (incluídos em `test_xtts.py` e
+`dub_with_xtts.py`): PyTorch 2.6+ mudou o padrão de `torch.load` (força
+`weights_only=False` para o checkpoint do XTTS); `torchaudio` novo exige
+`torchcodec`/FFmpeg externo (substituído por `soundfile`).
 
-**Importante:** usar `split_sentences=False` na chamada do XTTS — com o
-split automático ativado, o modelo verbaliza a pontuação na junção
-entre frases divididas (ex: fala "ponto" no meio do áudio).
+**Correções de texto antes da síntese** (função `clean_text_for_tts`):
+- `split_sentences=False` — com o split automático ativado, o modelo
+  verbaliza a pontuação na junção entre frases divididas
+- Reticências (`...`) viram vírgula — evita leitura literal
+- Ponto final é removido — o XTTS ocasionalmente verbaliza a palavra
+  "ponto" no fim de frases curtas
 
 ### 6. Seleção da referência de voz
 
 Para cada personagem, seleciona a fala mais longa do áudio original
-(ideal: 6–20 segundos) como referência de clonagem. Se a mais longa for
-curta demais, concatena as próximas até atingir o mínimo:
+(ideal: 6–20 segundos) como referência de clonagem, concatenando falas
+adicionais se a mais longa for curta demais:
 
 ```bash
-python scripts/pipeline/select_xtts_reference.py --dataset "<pasta dataset>" --character DIEGO --out "<pasta references>"
+python scripts/pipeline/batch_select_xtts_references.py --dataset "<pasta dataset>" --out "<pasta references>"
 ```
 
-### 7. Geração da dublagem
+192 de 193 personagens processados com sucesso (1 sem áudio suficiente).
+
+### 7. Geração da dublagem completa
 
 ```bash
-python scripts/pipeline/dub_with_xtts.py --dataset "<pasta dataset>" --references "<pasta references>" --out "<pasta de saída>" --samples 5
+python scripts/pipeline/dub_with_xtts.py --dataset "<pasta dataset>" --references "<pasta references>" --out "<pasta de saída>" --samples 0
 ```
 
 O modelo XTTS é carregado uma única vez e reaproveitado para todos os
-personagens/falas (mais rápido que recarregar por chamada, como era
-necessário no fluxo antigo baseado em RVC).
+personagens/falas. Processa em ordem crescente de quantidade de falas
+(personagens menores primeiro), permitindo validar qualidade em maior
+variedade de vozes antes de chegar nos personagens com mais falas
+(HEROI, com 1.910, é processado por último). Retomável — pula arquivos
+já gerados se interrompido.
 
 ## Ferramentas de terceiros utilizadas
 
