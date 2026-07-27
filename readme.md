@@ -2,11 +2,11 @@
 
 Projeto pessoal de documentação e experimentação: gerar uma dublagem em
 português brasileiro para o Gothic 1 (2001, Piranha Bytes) usando
-ferramentas de modding da comunidade + IA de voz (TTS / voice cloning).
+ferramentas de modding da comunidade + IA de voz (voice cloning).
 
 Este repositório documenta todo o processo, do ambiente de mods até o
-pipeline de geração de voz, como referência pra quem quiser reproduzir
-ou adaptar pra outros jogos da série.
+reempacotamento no jogo, como referência pra quem quiser reproduzir ou
+adaptar pra outros jogos da série.
 
 > ⚠️ Projeto sem fins lucrativos, feito por fã. Não redistribui assets
 > originais do jogo (áudio, texto, modelos). Veja a seção **Licença e
@@ -16,25 +16,24 @@ ou adaptar pra outros jogos da série.
 
 - [x] Ambiente configurado (Union, Ninja, Toolkit, G1CP, GD3D11)
 - [x] Extração dos áudios de fala (`speech.VDF`) via GothicVDFS
-- [x] Organização automática dos áudios por personagem (script Python)
+- [x] Organização automática dos áudios por personagem
 - [x] Decompilação dos scripts do jogo (Gothic Sourcer)
 - [x] Extração dos textos de diálogo (`AI_Output` → JSON)
-- [x] Cruzamento áudio + texto em `metadata.csv` por personagem (formato LJSpeech)
 - [x] Tradução PT-BR (via API Anthropic/Claude), com controle de tamanho
 - [x] Correção de contaminação de vozes (falas do Herói misturadas nos NPCs)
-- [x] Pipeline de geração de voz definido: XTTS v2 com voice cloning zero-shot
-- [x] **Dublagem completa de todos os personagens (192/193) via XTTS v2**
-- [x] Correção pontual de falas com letras repetidas/gritos (41 falas
-      identificadas e regeneradas com texto normalizado)
-- [ ] Reempacotamento no jogo
+- [x] Pipeline de geração de voz: XTTS v2 com voice cloning zero-shot
+- [x] **Dublagem completa de 192/193 personagens (5.508 falas)**
+- [x] Correção de falas com ênfase excessiva (gritos/letras repetidas)
+- [x] **Reempacotamento no jogo — dublagem funcionando in-game**
+- [ ] Legendas em PT-BR (investigado, não concluído — ver seção abaixo)
 
-**Números atuais do dataset:**
+**Números finais do dataset:**
 - 7.351 arquivos de áudio extraídos, organizados por personagem
 - 5.594 falas de diálogo com texto extraído dos scripts
-- 5.508 pares áudio+texto traduzidos para PT-BR
-- 192 de 193 personagens com referência de voz gerada (1 sem áudio suficiente)
-- Dublagem rodando do personagem com menos falas para o com mais falas,
-  permitindo validar qualidade em maior variedade de vozes primeiro
+- 5.508 falas traduzidas e dubladas em PT-BR (192 de 193 personagens;
+  1 sem áudio suficiente para referência de voz)
+- 1.843 falas sem tradução (SVMs/barks genéricos de combate) permanecem
+  no áudio original em inglês no arquivo final
 
 ## Setup do ambiente de jogo (Gothic 1 Classic — Steam)
 
@@ -53,29 +52,19 @@ Detalhes de troubleshooting (crashes, tela preta na intro, flickering) em `docs/
 
 ### 1. Extração de áudio
 
-Os arquivos de fala ficam em `Data/speech.VDF`, extraídos com o
-**GothicVDFS**. O script `scripts/dataset/organize_by_character.py`
-organiza os `.wav` em pastas por personagem, reconhecendo os seguintes
-padrões de nome de arquivo:
-
-| Padrão                           | Exemplo                            | Significado                         |
-| --------------------------------- | ---------------------------------- | ------------------------------------ |
-| `DIA_<PERSONAGEM>_...`          | `DIA_AIDAN_HELLO_13_01.WAV`      | Diálogo de NPC nomeado               |
-| `<CARGO>_<ID>_<PERSONAGEM>_...` | `GRD_200_THORUS_TEACH_09_01.WAV` | NPC com cargo (guarda, etc.)         |
-| `INFO_<PERSONAGEM>_...`         | `INFO_AARON_PISSED_09_01.WAV`    | Diálogo de NPC (variante)            |
-| `PC_<VARIANTE>_...`             | `PC_PSIONIC_FOLLOWME_...`        | Falas do próprio Herói/Nônimo        |
-| `SVM_<ID_VOZ>_...`              | `SVM_10_ALARM.WAV`               | Voz padrão compartilhada (combate)   |
-| `B_GRAVO_...`                   | `B_GRAVO_HELPATTITUDE_ANGRY_...` | Barks genéricos de reação             |
-
 ```bash
 python scripts/dataset/organize_by_character.py --src "<pasta SPEECH extraída>" --dst "<pasta destino>" --dry-run
 ```
+
+Reconhece os padrões `DIA_`, `<CARGO>_<ID>_`, `INFO_`, `PC_`, `SVM_`, `B_GRAVO_` no nome dos arquivos de áudio originais.
 
 ### 2. Decompilação dos scripts e extração de texto
 
 ```bash
 python scripts/dataset/extract_dialogue_text.py --src "<pasta do projeto decompilado>" --out "dialogue_dataset.json"
 ```
+
+Extrai o texto (comentário) e speaker/listener de cada `AI_Output`.
 
 ### 3. Cruzamento áudio + texto
 
@@ -85,21 +74,18 @@ python scripts/dataset/merge_audio_text.py --dataset "<pasta dataset>" --json "d
 
 ### 4. Tradução PT-BR
 
-Tradução via API da Anthropic (Claude), em lotes por personagem, com
-controle de tamanho e salvamento incremental (retomável):
-
 ```bash
 python scripts/pipeline/translate_dataset.py --dataset "<pasta dataset>" --all
 ```
 
-Requer `ANTHROPIC_API_KEY` em `.env`.
+Via API da Anthropic, com controle de tamanho (tradução limitada a ~20%
+de expansão sobre o original) e salvamento incremental.
 
 ### 5. Correção de contaminação de vozes
 
 **Problema descoberto:** cada arquivo `.d` de diálogo contém falas de
-**dois** personagens — o NPC dono do arquivo (`self`) e o Herói/Nônimo
-respondendo (`other`/`hero`). 1.910 de 5.594 falas (34%) estavam mal
-classificadas.
+dois personagens (NPC dono do arquivo e Herói respondendo). 1.910 de
+5.594 falas (34%) estavam mal classificadas.
 
 ```bash
 python scripts/dataset/check_speaker_contamination.py --json "dialogue_dataset.json" --character DIEGO
@@ -110,16 +96,11 @@ python scripts/dataset/rebuild_metadata.py --dataset "<pasta dataset>" --dialogu
 
 ## Geração de voz — XTTS v2 com voice cloning
 
-**Decisão de arquitetura:** foram testadas três abordagens — TTS
-genérico (edge-tts) + RVC treinado por personagem; RVC com índice de
-features e calibração de pitch/pausas; XTTS v2 com voice cloning direto
-do áudio original. A mais simples se mostrou a melhor: **XTTS v2 usando
-o próprio áudio original em inglês de cada personagem como referência
-de voz** (voice cloning zero-shot), sem necessidade de treinar nada.
-
-Isso eliminou a etapa de treino por personagem (RVC) do fluxo ativo —
-os scripts de treino continuam no repositório como documentação do
-processo, mas não são mais necessários para adicionar novos personagens.
+**Decisão de arquitetura:** testadas três abordagens — TTS genérico +
+RVC treinado por personagem; RVC com índice de features e calibração de
+pitch/pausas; XTTS v2 com voice cloning direto do áudio original. A mais
+simples venceu: **XTTS v2 usando o próprio áudio original em inglês de
+cada personagem como referência de voz**, sem RVC nem treino algum.
 
 ### Setup
 
@@ -127,67 +108,104 @@ processo, mas não são mais necessários para adicionar novos personagens.
 pip install TTS
 ```
 
-Requer Microsoft C++ Build Tools no Windows (compilação de extensão
-nativa) e PyTorch com CUDA já configurado no ambiente.
+Requer Microsoft C++ Build Tools (Windows) e PyTorch com CUDA. Ajustes
+de compatibilidade necessários (incluídos em `test_xtts.py` e
+`dub_with_xtts.py`): `torch.load` com `weights_only=False` (PyTorch
+2.6+ mudou o padrão) e substituição de `torchaudio.load` por
+`soundfile` (evita dependência do `torchcodec`/FFmpeg externo).
 
-**Ajustes de compatibilidade** (incluídos em `test_xtts.py` e
-`dub_with_xtts.py`): PyTorch 2.6+ mudou o padrão de `torch.load` (força
-`weights_only=False` para o checkpoint do XTTS); `torchaudio` novo exige
-`torchcodec`/FFmpeg externo (substituído por `soundfile`).
+**Correções de texto antes da síntese** (`clean_text_for_tts`):
+- `split_sentences=False` — evita que o modelo verbalize pontuação na
+  junção entre frases divididas automaticamente
+- Reticências (`...`) viram vírgula
+- Ponto final é removido — o XTTS ocasionalmente verbaliza "ponto" em
+  frases curtas
+- Sequências de 3+ letras repetidas colapsam para 1 (`AAAAARRRGHHHHH`
+  → `ARGH`) — preserva duplas naturais do português (`carro`), corrige
+  apenas exageros de grito/ênfase que geravam áudio distorcido
 
-**Correções de texto antes da síntese** (função `clean_text_for_tts`):
-- `split_sentences=False` — com o split automático ativado, o modelo
-  verbaliza a pontuação na junção entre frases divididas
-- Reticências (`...`) viram vírgula — evita leitura literal
-- Ponto final é removido — o XTTS ocasionalmente verbaliza a palavra
-  "ponto" no fim de frases curtas
+### Seleção da referência de voz
 
-### Correção de falas com ênfase excessiva (gritos)
+Para cada personagem, seleciona a fala mais longa do áudio original
+(ideal: 6–20s), concatenando falas adicionais se necessário:
 
-Textos com letras repetidas para indicar grito/ênfase (ex: `AAAAARRRGHHHHH`)
-confundem o XTTS, gerando áudio distorcido ou ininteligível. A função
-`clean_text_for_tts` colapsa sequências de 3+ letras repetidas para 1 só
-(preserva duplas naturais do português, como em "carro"):
+```bash
+python scripts/pipeline/batch_select_xtts_references.py --dataset "<pasta dataset>" --out "<pasta references>"
+```
+
+### Geração da dublagem
+
+```bash
+python scripts/pipeline/dub_with_xtts.py --dataset "<pasta dataset>" --references "<pasta references>" --out "<pasta de saída>" --samples 0
+```
+
+Modelo carregado uma única vez, reaproveitado para todos os
+personagens/falas. Processa em ordem crescente de quantidade de falas.
+Retomável — pula arquivos já gerados.
+
+### Correção de falas com gritos
 
 ```bash
 python scripts/pipeline/find_repeated_letters.py --dataset "<dataset>" --out "falas_flagged.json"
 python scripts/pipeline/regenerate_flagged.py --flagged "falas_flagged.json" --references "<references>" --out "<pasta dublagem>"
 ```
 
-41 de 5.508 falas (0.7%) precisaram dessa correção.
+41 de 5.508 falas (0.7%) precisaram dessa correção pontual.
 
-### 6. Seleção da referência de voz
+## Reempacotamento no jogo
 
-Para cada personagem, seleciona a fala mais longa do áudio original
-(ideal: 6–20 segundos) como referência de clonagem, concatenando falas
-adicionais se a mais longa for curta demais:
-
-```bash
-python scripts/pipeline/batch_select_xtts_references.py --dataset "<pasta dataset>" --out "<pasta references>"
-```
-
-192 de 193 personagens processados com sucesso (1 sem áudio suficiente).
-
-### 7. Geração da dublagem completa
+Os áudios dublados (PCM, saída do XTTS) precisam ser convertidos para
+**IMA_ADPCM 4-bit** (formato original do jogo) antes de empacotar:
 
 ```bash
-python scripts/pipeline/dub_with_xtts.py --dataset "<pasta dataset>" --references "<pasta references>" --out "<pasta de saída>" --samples 0
+python scripts/pipeline/prepare_repack.py --dubbed "<pasta dublagem>" --out "<pasta repack>"
 ```
 
-O modelo XTTS é carregado uma única vez e reaproveitado para todos os
-personagens/falas. Processa em ordem crescente de quantidade de falas
-(personagens menores primeiro), permitindo validar qualidade em maior
-variedade de vozes antes de chegar nos personagens com mais falas
-(HEROI, com 1.910, é processado por último). Retomável — pula arquivos
-já gerados se interrompido.
+Usa `ffmpeg` (`-acodec adpcm_ima_wav`). Como só 5.508 das 7.351 falas
+originais foram dubladas, é necessário fazer merge com os áudios
+originais em inglês (mesma pasta, sobrescrevendo apenas os arquivos
+dublados) antes de empacotar — garante que personagens/falas sem
+dublagem continuem funcionando normalmente:
+
+```powershell
+# copia todos os áudios originais primeiro
+Copy-Item "<pasta audios originais>\*" -Destination "<pasta merge>" -Force
+# sobrescreve com os dublados por cima
+Copy-Item "<pasta dublagem convertida>\*" -Destination "<pasta merge>" -Force
+```
+
+O volume final (7.351 arquivos) é empacotado em um novo `speech.VDF`
+usando o **GothicVDFS** (aba **Builder**, Root Path na pasta que contém
+a estrutura `_WORK\DATA\SOUND\SPEECH\`, máscara `*.wav`).
+
+**Nota:** tentativas de carregar o VDF de dublagem via `Data/ModVDF/`
+(prioridade sobre o original) não funcionaram neste ambiente — o motivo
+não foi diagnosticado. A solução funcional foi **substituir diretamente
+o `speech.VDF` original** (com backup do original preservado antes).
+
+## Legendas em PT-BR (não concluído)
+
+As legendas do jogo não vêm dos scripts compilados (`Gothic.dat`) nem
+do texto que o Gothic Sourcer mostra como comentário ao decompilar —
+esse texto é só um índice de conveniência, lido do banco de dados
+**Output Units (OU)**, armazenado em `OUINFO.INF`
+(`_work/Data/Scripts/_compiled/`) e `OU.BIN`/`OU.CSL`. Relatos da
+comunidade indicam que **editar o `OUINFO.INF` diretamente não altera
+as legendas em jogo** — o dado real parece exigir regeneração via
+**Spacer** (editor de níveis do Gothic, ferramenta separada do
+Sourcer), através de uma função "Output-Units → Update → Save" cujo
+mecanismo exato (fonte do texto durante a atualização) não foi
+totalmente esclarecido nesta investigação. Retomar como projeto futuro,
+começando pela instalação e exploração do Spacer.
 
 ## Ferramentas de terceiros utilizadas
 
-- [GothicVDFS](https://worldofplayers.ru/threads/42314/) — extração de pacotes `.vdf`
+- [GothicVDFS](https://worldofplayers.ru/threads/42314/) — extração e empacotamento de pacotes `.vdf`
 - [Gothic Sourcer](https://worldofplayers.ru/threads/38318/) — decompilação e leitura de scripts de diálogo
 - Union / Ninja / Toolkit / G1CP / GD3D11 — via Steam Workshop
 - [Coqui TTS (XTTS v2)](https://github.com/coqui-ai/TTS) — geração de voz com voice cloning
-- [RVC WebUI](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI) — usado experimentalmente; não faz mais parte do pipeline ativo
+- [FFmpeg](https://ffmpeg.org/) — conversão de áudio para IMA_ADPCM
+- [RVC WebUI](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI) — usado experimentalmente; não faz parte do pipeline final
 
 ## Licença e Direitos Autorais
 
