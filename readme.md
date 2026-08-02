@@ -192,11 +192,23 @@ funcionou neste ambiente (motivo não diagnosticado). Solução funcional:
 ## Pendências conhecidas
 
 **Conversas ambiente entre NPCs (sem envolver o Herói) continuam em
-inglês.** Falas de personagens conversando entre si enquanto perambulam
-pelo mapa não fazem parte do `speech.VDF` nem do sistema SVM já
-mapeado — fonte ainda não identificada. Hipóteses a investigar: outro
-VDF de áudio não descoberto, ou um sistema de diálogo ambiente
-diferente do `AI_Output`/`C_SVM` já mapeados.
+inglês.** Essas falas usam a função nativa `AI_OutputSVM` (chamada via
+`B_Say`, no sistema `ZS_Smalltalk`), que referencia os mesmos campos
+`Smalltalk01`-`24` do `C_SVM` já extraídos, traduzidos e dublados no
+pipeline (confirmado: o arquivo de áudio correto, em português, existe
+no `speech.VDF` ativo). Mesmo assim, o jogo continua reproduzindo a
+versão em inglês nessas falas específicas — diálogo direto com o Herói
+usa o mesmo sistema SVM e funciona normalmente dublado.
+
+Investigado sem sucesso: VDFs concorrentes na pasta `Data` (nenhum
+outro contém `SPEECH`), cache do Union/GD3D11 (nenhuma pasta de cache
+encontrada), hash do arquivo (confirmado idêntico ao dublado), reinício
+completo do jogo e novo save. A causa provável está em como o motor
+resolve `AI_OutputSVM` para falas "Noise" (ambiente) internamente —
+possivelmente um mecanismo diferente de carregamento não capturável por
+inspeção de arquivos. Ferramentas como Process Monitor (captura de
+acesso a disco em tempo real) poderiam confirmar a causa raiz, mas não
+foram usadas nesta investigação. Documentado como limitação conhecida.
 
 **Legendas em PT-BR não concluídas.** As legendas não vêm dos scripts
 compilados (`Gothic.dat`) nem do texto mostrado como comentário pelo
