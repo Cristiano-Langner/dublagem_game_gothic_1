@@ -1,16 +1,23 @@
 # Dublagem PT-BR — Gothic 1 (Projeto Fan-Made com IA)
 
-Projeto pessoal de documentação e experimentação: gerar uma dublagem em
-português brasileiro para o Gothic 1 (2001, Piranha Bytes) usando
+Projeto pessoal, sem fins lucrativos: dublagem completa do Gothic 1
+Classic (2001, Piranha Bytes) em português brasileiro, usando
 ferramentas de modding da comunidade + IA de voz (voice cloning).
 
 Este repositório documenta todo o processo, do ambiente de mods até o
 reempacotamento no jogo, como referência pra quem quiser reproduzir ou
 adaptar pra outros jogos da série.
 
-> ⚠️ Projeto sem fins lucrativos, feito por fã. Não redistribui assets
-> originais do jogo (áudio, texto, modelos). Veja a seção **Licença e
-> Direitos Autorais** abaixo.
+> ⚠️ Não redistribui assets originais do jogo neste repositório (áudio,
+> texto, modelos). O arquivo final para instalação está disponível
+> separadamente — veja **Download** abaixo.
+
+## Download (jogar com a dublagem)
+
+**[📥 Baixar speech.vdf + instruções (Google Drive)](https://drive.google.com/drive/folders/1OVqThsQe7lBnR4KGxA0QLnH2i-uBK-8O?usp=sharing)**
+
+Requer uma cópia legítima do Gothic 1 Classic (Steam). Instruções de
+instalação e reversão incluídas no arquivo `LEIA-ME` dentro da pasta.
 
 ## Status atual — Projeto concluído
 
@@ -25,11 +32,14 @@ adaptar pra outros jogos da série.
 - [x] Dublagem completa dos diálogos (192/193 personagens, 5.508 falas)
 - [x] Extração e dublagem das mensagens padrão/SVM (1.726 falas, 17 vozes)
 - [x] Correção de falas com ênfase excessiva (gritos/letras repetidas)
-- [x] **Reempacotamento no jogo — dublagem funcionando in-game, incluindo
+- [x] Reempacotamento no jogo — dublagem funcionando in-game, incluindo
       diálogos diretos, mensagens de combate/reação e conversas
-      ambiente entre NPCs**
+      ambiente entre NPCs
 - [x] Refinamento da voz do Herói (comparação de 10 referências
       candidatas + teste em 5 tons diferentes, nova voz redublada)
+- [x] **Normalização de volume** — falas ambiente/SVM dubladas soavam
+      mais altas que o áudio original, corrigido por RMS matching
+- [x] **Disponibilizado para a comunidade** (Google Drive)
 - [ ] Legendas em PT-BR (investigado, não concluído — ver seção abaixo)
 
 **Números finais do dataset:**
@@ -165,12 +175,26 @@ python scripts/pipeline/find_repeated_letters.py --dataset "<dataset>" --out "fa
 python scripts/pipeline/regenerate_flagged.py --flagged "falas_flagged.json" --references "<references>" --out "<pasta dublagem>"
 ```
 
+### Normalização de volume
+
+Falas ambiente/SVM dubladas ficaram audivelmente mais altas que o
+áudio original (o XTTS normaliza para volume de fala isolada; o jogo
+mixa falas ambiente mais discretas). Corrigido por RMS matching contra
+o áudio original correspondente, com teto de ganho (3x) para evitar
+distorção em casos extremos:
+
+```bash
+python scripts/pipeline/normalize_volume.py --dubbed "<pasta dublagem>" --originals "<pasta dataset>" --out "<pasta normalizada>"
+```
+
+7.225 de 7.243 áudios normalizados com sucesso.
+
 ## Reempacotamento no jogo
 
 Conversão para **IMA_ADPCM 4-bit** (formato original) via `ffmpeg`:
 
 ```bash
-python scripts/pipeline/prepare_repack.py --dubbed "<pasta dublagem>" --out "<pasta repack>"
+python scripts/pipeline/prepare_repack.py --dubbed "<pasta dublagem normalizada>" --out "<pasta repack>"
 ```
 
 Merge com os áudios originais em inglês (garante que falas sem
@@ -193,8 +217,7 @@ Root Path na pasta com a estrutura `_WORK\DATA\SOUND\SPEECH\`, máscara
 - As conversas ambiente entre NPCs pareceram continuar em inglês por
   várias sessões mesmo com o áudio correto confirmado no VDF — resolvido
   após reempacotamentos/reinícios subsequentes, provavelmente cache em
-  algum nível do sistema (Union, GD3D11 ou driver de áudio) que se
-  dissipou com o tempo, não uma falha real do pipeline.
+  algum nível do sistema que se dissipou com o tempo.
 
 ## Pendências conhecidas
 
@@ -222,9 +245,9 @@ O **código deste repositório** (scripts, documentação) é distribuído sob
 licença MIT — veja `LICENSE`.
 
 Gothic 1 e todos os seus assets (áudio, texto, modelos, texturas) são
-propriedade de **Piranha Bytes / THQ Nordic**. Este repositório **não**
-inclui, distribui ou hospeda nenhum arquivo extraído do jogo original
-(áudios, dataset, scripts de diálogo do jogo). Qualquer pessoa que queira
-reproduzir o processo precisa possuir uma cópia legítima do jogo.
+propriedade de **Piranha Bytes / THQ Nordic**. O código aqui não inclui
+nenhum arquivo extraído do jogo original. O arquivo `speech.vdf`
+disponibilizado para download contém o áudio original do jogo mesclado
+com a dublagem gerada — requer posse legítima do jogo para uso.
 
 Este é um projeto de fã, não afiliado à Piranha Bytes ou THQ Nordic.
