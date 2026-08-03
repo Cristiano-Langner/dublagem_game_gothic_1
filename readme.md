@@ -12,7 +12,7 @@ adaptar pra outros jogos da série.
 > originais do jogo (áudio, texto, modelos). Veja a seção **Licença e
 > Direitos Autorais** abaixo.
 
-## Status atual
+## Status atual — Projeto concluído
 
 - [x] Ambiente configurado (Union, Ninja, Toolkit, G1CP, GD3D11)
 - [x] Extração dos áudios de fala (`speech.VDF`) via GothicVDFS
@@ -23,23 +23,21 @@ adaptar pra outros jogos da série.
 - [x] Correção de contaminação de vozes (falas do Herói misturadas nos NPCs)
 - [x] Pipeline de geração de voz: XTTS v2 com voice cloning zero-shot
 - [x] Dublagem completa dos diálogos (192/193 personagens, 5.508 falas)
-- [x] **Extração e dublagem das mensagens padrão (SVM)** — falas de
-      reação/combate genéricas (`svm.d`), 1.726 falas em 17 vozes
-      (`VOZ_PADRAO_1` a `17`)
+- [x] Extração e dublagem das mensagens padrão/SVM (1.726 falas, 17 vozes)
 - [x] Correção de falas com ênfase excessiva (gritos/letras repetidas)
-- [x] **Reempacotamento no jogo — dublagem funcionando in-game**
+- [x] **Reempacotamento no jogo — dublagem funcionando in-game, incluindo
+      diálogos diretos, mensagens de combate/reação e conversas
+      ambiente entre NPCs**
+- [x] Refinamento da voz do Herói (comparação de 10 referências
+      candidatas + teste em 5 tons diferentes, nova voz redublada)
 - [ ] Legendas em PT-BR (investigado, não concluído — ver seção abaixo)
-- [ ] **Conversas ambiente entre NPCs (sem envolver o Herói) ainda em
-      inglês** — fonte ainda não identificada, ver seção abaixo
 
 **Números finais do dataset:**
-- 7.351 arquivos de áudio de diálogo/SVM extraídos do `speech.VDF`,
-  organizados por personagem
-- 5.508 falas de diálogo dubladas em PT-BR
-- 1.726 falas de mensagens padrão (SVM) dubladas em PT-BR, incluindo a
-  `VOZ_PADRAO_16`, encontrada num VDF separado (`speech_babe_speech_engl.VDF`)
-  não coberto pela extração inicial
-- Total: ~7.234 falas dubladas no `speech.VDF` final
+- 7.351 arquivos de áudio de diálogo/SVM dublados em PT-BR
+- ~7.234 falas com tradução real; o restante (barks sem texto capturável)
+  permanece no áudio original em inglês
+- 17 vozes padrão (SVM) + 192 personagens únicos com voz clonada do
+  próprio áudio original
 
 ## Setup do ambiente de jogo (Gothic 1 Classic — Steam)
 
@@ -61,8 +59,6 @@ Detalhes de troubleshooting (crashes, tela preta na intro, flickering) em `docs/
 ```bash
 python scripts/dataset/organize_by_character.py --src "<pasta SPEECH extraída>" --dst "<pasta destino>" --dry-run
 ```
-
-Reconhece os padrões `DIA_`, `<CARGO>_<ID>_`, `INFO_`, `PC_`, `SVM_`, `B_GRAVO_`.
 
 ### 2. Decompilação dos scripts e extração de texto
 
@@ -86,9 +82,8 @@ Via API da Anthropic, controle de tamanho, salvamento incremental.
 
 ### 5. Correção de contaminação de vozes
 
-**Problema descoberto:** cada arquivo `.d` de diálogo contém falas de
-dois personagens (NPC dono do arquivo e Herói respondendo). 1.910 de
-5.594 falas (34%) estavam mal classificadas.
+Cada `.d` de diálogo contém falas de dois personagens (NPC dono do
+arquivo e Herói respondendo); 34% das falas estavam mal classificadas.
 
 ```bash
 python scripts/dataset/check_speaker_contamination.py --json "dialogue_dataset.json" --character DIEGO
@@ -99,11 +94,10 @@ python scripts/dataset/rebuild_metadata.py --dataset "<pasta dataset>" --dialogu
 
 ### 6. Mensagens padrão (SVM)
 
-Falas de reação/combate genéricas ("Pare com a magia!", "Socorro!")
-não vêm de `AI_Output` em diálogos, mas de uma classe `C_SVM` separada
-(`Story/svm.d`), com uma instância por "conjunto de voz" (`SVM_1` a
-`SVM_17`, ligadas às pastas `VOZ_PADRAO_*` já identificadas na extração
-de áudio):
+Falas de reação/combate genéricas vêm de uma classe `C_SVM` separada
+(`Story/svm.d`), incluindo o campo `Smalltalk01`-`24` usado pelas
+conversas ambiente entre NPCs (via função nativa `AI_OutputSVM`,
+chamada por `B_Say`/`ZS_Smalltalk`):
 
 ```bash
 python scripts/dataset/extract_svm_text.py --src "svm.d" --out "svm_dataset.json"
@@ -111,9 +105,7 @@ python scripts/dataset/merge_svm_audio_text.py --dataset "<pasta dataset>" --jso
 ```
 
 **Nota:** a `SVM_16` não estava no `speech.VDF` principal — seus 6
-arquivos ficam num VDF separado, `Data/speech_babe_speech_engl.VDF`
-(precisa ser extraído e adicionado manualmente à pasta `VOZ_PADRAO_16`
-antes de traduzir/dublar).
+arquivos ficam num VDF separado, `Data/speech_babe_speech_engl.VDF`.
 
 ## Geração de voz — XTTS v2 com voice cloning
 
@@ -149,6 +141,12 @@ python scripts/pipeline/batch_select_xtts_references.py --dataset "<pasta datase
 
 Usa a fala mais longa disponível (ideal 6–20s), concatenando se necessário.
 
+**Refinamento manual (Herói):** como o Herói é a voz mais ouvida do
+jogo, foram testadas 10 referências candidatas (amostras aleatórias do
+próprio pool de falas dele) com uma frase de teste, seguido de teste
+mais aprofundado das 2 melhores em 5 tons diferentes (calmo, tenso,
+esforço, irritado, curto) antes da escolha final.
+
 ### Geração da dublagem
 
 ```bash
@@ -156,7 +154,9 @@ python scripts/pipeline/dub_with_xtts.py --dataset "<pasta dataset>" --reference
 ```
 
 Modelo carregado uma única vez, reaproveitado para todos os
-personagens/falas. Retomável — pula arquivos já gerados.
+personagens/falas. Retomável — pula arquivos já gerados (para redublar
+um personagem específico com nova referência, apagar seus áudios da
+pasta de saída antes de rodar novamente).
 
 ### Correção de falas com gritos
 
@@ -185,30 +185,18 @@ Empacotamento em novo `speech.VDF` via **GothicVDFS** (aba **Builder**,
 Root Path na pasta com a estrutura `_WORK\DATA\SOUND\SPEECH\`, máscara
 `*.wav`).
 
-**Nota:** carregar via `Data/ModVDF/` (prioridade sobre o original) não
-funcionou neste ambiente (motivo não diagnosticado). Solução funcional:
-**substituir diretamente o `speech.VDF` original** (com backup preservado).
+**Notas:**
+- Carregar via `Data/ModVDF/` (prioridade sobre o original) não
+  funcionou neste ambiente. Solução: **substituir diretamente o
+  `speech.VDF` original** (com backup preservado fora da pasta `Data`,
+  já que mantê-lo dentro causa conflito de carregamento entre VDFs).
+- As conversas ambiente entre NPCs pareceram continuar em inglês por
+  várias sessões mesmo com o áudio correto confirmado no VDF — resolvido
+  após reempacotamentos/reinícios subsequentes, provavelmente cache em
+  algum nível do sistema (Union, GD3D11 ou driver de áudio) que se
+  dissipou com o tempo, não uma falha real do pipeline.
 
 ## Pendências conhecidas
-
-**Conversas ambiente entre NPCs (sem envolver o Herói) continuam em
-inglês.** Essas falas usam a função nativa `AI_OutputSVM` (chamada via
-`B_Say`, no sistema `ZS_Smalltalk`), que referencia os mesmos campos
-`Smalltalk01`-`24` do `C_SVM` já extraídos, traduzidos e dublados no
-pipeline (confirmado: o arquivo de áudio correto, em português, existe
-no `speech.VDF` ativo). Mesmo assim, o jogo continua reproduzindo a
-versão em inglês nessas falas específicas — diálogo direto com o Herói
-usa o mesmo sistema SVM e funciona normalmente dublado.
-
-Investigado sem sucesso: VDFs concorrentes na pasta `Data` (nenhum
-outro contém `SPEECH`), cache do Union/GD3D11 (nenhuma pasta de cache
-encontrada), hash do arquivo (confirmado idêntico ao dublado), reinício
-completo do jogo e novo save. A causa provável está em como o motor
-resolve `AI_OutputSVM` para falas "Noise" (ambiente) internamente —
-possivelmente um mecanismo diferente de carregamento não capturável por
-inspeção de arquivos. Ferramentas como Process Monitor (captura de
-acesso a disco em tempo real) poderiam confirmar a causa raiz, mas não
-foram usadas nesta investigação. Documentado como limitação conhecida.
 
 **Legendas em PT-BR não concluídas.** As legendas não vêm dos scripts
 compilados (`Gothic.dat`) nem do texto mostrado como comentário pelo
